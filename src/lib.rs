@@ -21,6 +21,7 @@
 //!
 //!   [libiio Wiki](https://wiki.analog.com/resources/tools-software/linux-software/libiio)
 //!
+extern crate windows_dll;
 
 use std::{
     ffi::{CStr, CString},
@@ -28,8 +29,8 @@ use std::{
     slice, str,
 };
 
-use libiio_sys::{self as ffi};
-use nix::errno;
+mod bindings;
+use crate::bindings as ffi;
 
 pub use crate::buffer::*;
 pub use crate::channel::*;
@@ -53,8 +54,7 @@ pub mod errors;
 fn cstring_opt(pstr: *const c_char) -> Option<String> {
     if pstr.is_null() {
         None
-    }
-    else {
+    } else {
         let name = unsafe { CStr::from_ptr(pstr) };
         Some(name.to_str().unwrap_or_default().to_string())
     }
@@ -62,9 +62,8 @@ fn cstring_opt(pstr: *const c_char) -> Option<String> {
 
 pub(crate) fn sys_result<T>(ret: i32, result: T) -> Result<T> {
     if ret < 0 {
-        Err(errno::from_i32(-ret).into())
-    }
-    else {
+        Err(std::io::Error::last_os_error().into())
+    } else {
         Ok(result)
     }
 }
@@ -85,8 +84,7 @@ pub fn library_version() -> (u32, u32, String) {
     let sgit = unsafe {
         if buf.contains(&0) {
             CStr::from_ptr(pbuf).to_owned()
-        }
-        else {
+        } else {
             let slc = str::from_utf8(slice::from_raw_parts(pbuf as *mut u8, BUF_SZ)).unwrap();
             CString::new(slc).unwrap()
         }
@@ -110,5 +108,13 @@ mod tests {
         let v1 = library_version();
         let v2 = library_version();
         assert!(v1 == v2);
+    }
+
+    #[test]
+    fn get_version() {
+        let (major, minor, gittag) = library_version();
+        println!("Major: {}", major);
+        println!("Minor: {}", minor);
+        println!("git tag: {}", gittag);
     }
 }

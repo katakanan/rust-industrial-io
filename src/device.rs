@@ -15,10 +15,8 @@ use std::ffi::CString;
 use std::os::raw::{c_int, c_longlong, c_uint, c_void};
 use std::{ptr, str};
 
-use nix::errno::Errno;
-
 use super::*;
-use crate::ffi;
+use crate::bindings as ffi;
 
 /// An Industrial I/O Device
 ///
@@ -139,7 +137,7 @@ impl Device {
         _chan: *mut ffi::iio_device,
         attr: *const c_char,
         val: *const c_char,
-        _len: usize,
+        _len: ffi::size_t,
         pmap: *mut c_void,
     ) -> c_int {
         if attr.is_null() || val.is_null() || pmap.is_null() {
@@ -227,8 +225,7 @@ impl Device {
 
         if chan.is_null() {
             None
-        }
-        else {
+        } else {
             Some(Channel {
                 chan,
                 ctx: self.context(),
@@ -248,9 +245,10 @@ impl Device {
     /// `sample_count` The number of samples the buffer should hold
     /// `cyclic` Whether to enable cyclic mode.
     pub fn create_buffer(&self, sample_count: usize, cyclic: bool) -> Result<Buffer> {
-        let buf = unsafe { ffi::iio_device_create_buffer(self.dev, sample_count, cyclic) };
+        let tmp = sample_count as ffi::size_t;
+        let buf = unsafe { ffi::iio_device_create_buffer(self.dev, tmp, cyclic) };
         if buf.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Buffer {
             buf,

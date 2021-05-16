@@ -15,7 +15,7 @@ use std::os::raw::c_int;
 use std::{mem, ptr};
 
 use super::*;
-use crate::ffi;
+use crate::bindings as ffi;
 
 /// An Industrial I/O input or output buffer
 pub struct Buffer {
@@ -71,7 +71,8 @@ impl Buffer {
     ///
     /// `n` The number of samples to send
     pub fn push_partial(&mut self, n: usize) -> Result<usize> {
-        let ret = unsafe { ffi::iio_buffer_push_partial(self.buf, n) };
+        let sample_count = n as ffi::size_t;
+        let ret = unsafe { ffi::iio_buffer_push_partial(self.buf, sample_count) };
         sys_result(ret as i32, ret as usize)
     }
 
@@ -124,8 +125,7 @@ impl<T> Iterator for IntoIter<T> {
         unsafe {
             if self.ptr as *const _ >= self.end {
                 None
-            }
-            else {
+            } else {
                 let prev = self.ptr;
                 self.ptr = self.ptr.offset(self.step);
                 Some(ptr::read(prev))

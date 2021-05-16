@@ -11,15 +11,13 @@
 //!
 
 use std::ffi::CString;
-use std::os::raw::c_uint;
+use std::os::raw::{c_int, c_uint};
 use std::ptr;
 use std::rc::Rc;
 use std::time::Duration;
 
-use nix::errno::Errno;
-
 use super::*;
-use crate::ffi;
+use crate::bindings as ffi;
 
 /// An Industrial I/O Context
 ///
@@ -60,7 +58,7 @@ impl Context {
     pub fn new() -> Result<Context> {
         let ctx = unsafe { ffi::iio_create_default_context() };
         if ctx.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Context {
             inner: Rc::new(InnerContext { ctx }),
@@ -80,19 +78,7 @@ impl Context {
         let uri = CString::new(uri)?;
         let ctx = unsafe { ffi::iio_create_context_from_uri(uri.as_ptr()) };
         if ctx.is_null() {
-            return Err(Errno::last().into());
-        }
-        Ok(Context {
-            inner: Rc::new(InnerContext { ctx }),
-        })
-    }
-
-    /// Creates a context from a local device (Linux only)
-    #[cfg(target_os = "linux")]
-    pub fn create_local() -> Result<Context> {
-        let ctx = unsafe { ffi::iio_create_local_context() };
-        if ctx.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Context {
             inner: Rc::new(InnerContext { ctx }),
@@ -104,7 +90,7 @@ impl Context {
         let host = CString::new(host)?;
         let ctx = unsafe { ffi::iio_create_network_context(host.as_ptr()) };
         if ctx.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Context {
             inner: Rc::new(InnerContext { ctx }),
@@ -116,7 +102,7 @@ impl Context {
         let xml_file = CString::new(xml_file)?;
         let ctx = unsafe { ffi::iio_create_xml_context(xml_file.as_ptr()) };
         if ctx.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Context {
             inner: Rc::new(InnerContext { ctx }),
@@ -125,11 +111,11 @@ impl Context {
 
     /// Creates a context from XML data in memory
     pub fn create_xml_mem(xml: &str) -> Result<Context> {
-        let n = xml.len();
+        let n = xml.len() as ffi::size_t;
         let xml = CString::new(xml)?;
         let ctx = unsafe { ffi::iio_create_xml_context_mem(xml.as_ptr(), n) };
         if ctx.is_null() {
-            return Err(Errno::last().into());
+            return Err(std::io::Error::last_os_error().into());
         }
         Ok(Context {
             inner: Rc::new(InnerContext { ctx }),
@@ -173,7 +159,8 @@ impl Context {
             ffi::iio_context_get_attr(self.inner.ctx, idx as c_uint, &mut pname, &mut pval)
         };
         if ret < 0 {
-            return Err(errno::from_i32(ret).into());
+            // return Err(errno::from_i32(ret).into());
+            return Err(std::io::Error::last_os_error().into());
         }
         let name = cstring_opt(pname);
         let val = cstring_opt(pval);
@@ -230,8 +217,7 @@ impl Context {
         let dev = unsafe { ffi::iio_context_find_device(self.inner.ctx, name.as_ptr()) };
         if dev.is_null() {
             None
-        }
-        else {
+        } else {
             Some(Device {
                 dev,
                 ctx: self.clone(),
@@ -248,6 +234,100 @@ impl Context {
     ///
     /// This consumes the context to destroy the instance.
     pub fn destroy(self) {}
+
+    pub fn autodetect_context(rtn: bool, name_str: String, scan_str: String) -> Result<Context> {
+        //should it be &str?
+        const BUF_SIZE: usize = 16384;
+        let scan = if scan_str == "" {
+            std::ptr::null_mut()
+        } else {
+            match CString::new(scan_str) {
+                Ok(tmp) => tmp.as_ptr(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        };
+
+        let _name = if name_str == "" {
+            std::ptr::null_mut()
+        } else {
+            match CString::new(name_str) {
+                Ok(tmp) => tmp.as_ptr(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        };
+
+        let scan_ctx: *mut ffi::iio_scan_context = unsafe { ffi::iio_create_scan_context(scan, 0) };
+
+        if scan_ctx == std::ptr::null_mut() {
+            eprintln!("Unable to create scan context");
+            return Err(std::io::Error::last_os_error().into());
+        }
+
+        let info: Box<*mut ffi::iio_context_info> =
+            Box::new(std::ptr::null_mut() as *mut ffi::iio_context_info);
+        let mut pinfo = Box::into_raw(info);
+
+        let ret = unsafe { ffi::iio_scan_context_get_info_list(scan_ctx, &mut pinfo) };
+
+        if ret < 0 {
+            let mut err_str = vec![' ' as c_char; BUF_SIZE];
+            let pbuf = err_str.as_mut_ptr();
+            let err = (-ret) as c_int;
+            unsafe { ffi::iio_strerror(err, pbuf, BUF_SIZE as ffi::size_t) };
+
+            let msg = unsafe {
+                if err_str.contains(&0) {
+                    CStr::from_ptr(pbuf).to_owned()
+                } else {
+                    let slc =
+                        str::from_utf8(slice::from_raw_parts(pbuf as *mut u8, BUF_SIZE)).unwrap();
+                    CString::new(slc).unwrap()
+                }
+            };
+
+            eprintln!("Scannig for IIO contexts failed {}", msg.to_string_lossy());
+            unsafe { ffi::iio_scan_context_destroy(scan_ctx) };
+            return Err(std::io::Error::last_os_error().into());
+        }
+
+        if ret == 0 {
+            println!("No IIO context found.");
+            unsafe { ffi::iio_context_info_list_free(pinfo) };
+            unsafe { ffi::iio_scan_context_destroy(scan_ctx) };
+            return Err(Error::General(String::from("No IIO context found.")));
+        }
+
+        if rtn && ret == 1 {
+            let info = unsafe { slice::from_raw_parts(pinfo, ret as usize).to_vec() };
+            let uri = (unsafe { CStr::from_ptr(ffi::iio_context_info_get_uri(info[0])) })
+                .to_string_lossy()
+                .into_owned();
+            println!("Using auto-detected IIO context at URI");
+            return Context::create_from_uri(uri.as_str());
+        } else {
+            if rtn {
+                eprintln!("Multiple contexts founds. Please select one using --uri:");
+            } else {
+                println!("Available contexts:");
+            }
+
+            let info = unsafe { slice::from_raw_parts(pinfo, ret as usize).to_vec() };
+            for i in 0..ret {
+                let description = (unsafe {
+                    CStr::from_ptr(ffi::iio_context_info_get_description(info[i as usize]))
+                })
+                .to_string_lossy();
+                let uri =
+                    (unsafe { CStr::from_ptr(ffi::iio_context_info_get_uri(info[i as usize])) })
+                        .to_string_lossy();
+                println!("\t{}: {} [{}]", i, description, uri);
+            }
+        }
+        // println!("{:?}", ret);
+        unsafe { ffi::iio_context_info_list_free(pinfo) };
+        unsafe { ffi::iio_scan_context_destroy(scan_ctx) }
+        Err(Error::General(String::from("Select Context")))
+    }
 }
 
 impl PartialEq for Context {
@@ -353,5 +433,10 @@ mod tests {
         let desc = ctx.description();
         println!("Context description: {}", desc);
         assert!(!desc.is_empty());
+    }
+
+    #[test]
+    fn detext() {
+        let _ = Context::autodetect_context(false, String::from(""), String::from(""));
     }
 }

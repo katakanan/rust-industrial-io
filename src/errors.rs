@@ -10,7 +10,6 @@
 //!
 //! Error definitions for the Industrial I/O Library.
 
-use nix;
 use std::{ffi, io, result};
 use thiserror::Error;
 
@@ -23,8 +22,8 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("{0}")]
     NulError(#[from] ffi::NulError),
-    #[error("{0}")]
-    Nix(#[from] nix::Error),
+    // #[error("{0}")]
+    // Nix(#[from] nix::Error),
     #[error("Wrong data type")]
     WrongDataType,
     #[error("Bad return size")]
@@ -38,9 +37,9 @@ pub enum Error {
 /// The default result type for the IIO library
 pub type Result<T> = result::Result<T, Error>;
 
-impl From<nix::errno::Errno> for Error {
-    /// Converts a *nix errno into an Error
-    fn from(err: nix::errno::Errno) -> Self {
-        nix::Error::Sys(err).into()
-    }
-}
+// impl From<nix::errno::Errno> for Error {
+//     /// Converts a *nix errno into an Error
+//     fn from(err: nix::errno::Errno) -> Self {
+//         nix::Error::Sys(err).into()
+//     }
+// }

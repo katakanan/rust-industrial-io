@@ -17,7 +17,7 @@ use std::os::raw::{c_int, c_longlong, c_uint, c_void};
 use std::{mem, str};
 
 use super::*;
-use crate::ffi;
+use crate::bindings as ffi;
 
 /// The type of data associated with a channel.
 #[repr(u32)]
@@ -136,8 +136,7 @@ impl DataFormat {
                 8 => Some(TypeId::of::<i64>()),
                 _ => None,
             }
-        }
-        else {
+        } else {
             match nbytes {
                 1 => Some(TypeId::of::<u8>()),
                 2 => Some(TypeId::of::<u16>()),
@@ -250,7 +249,7 @@ impl Channel {
         _chan: *mut ffi::iio_channel,
         attr: *const c_char,
         val: *const c_char,
-        _len: usize,
+        _len: ffi::size_t,
         pmap: *mut c_void,
     ) -> c_int {
         if attr.is_null() || val.is_null() || pmap.is_null() {
@@ -413,7 +412,7 @@ impl Channel {
 
         let n = buf.capacity();
         let sz_item = mem::size_of::<T>();
-        let sz_in = n * sz_item;
+        let sz_in = (n * sz_item) as ffi::size_t;
 
         let mut v = vec![T::default(); n];
         let sz = unsafe {
@@ -425,7 +424,7 @@ impl Channel {
         }
 
         if sz < sz_in {
-            v.truncate(sz / sz_item);
+            v.truncate((sz as usize) / sz_item);
         }
         Ok(v)
     }
@@ -441,7 +440,7 @@ impl Channel {
 
         let n = buf.capacity();
         let sz_item = mem::size_of::<T>();
-        let sz_in = n * sz_item;
+        let sz_in = (n * sz_item) as ffi::size_t;
 
         let mut v = vec![T::default(); n];
         let sz = unsafe {
@@ -453,7 +452,7 @@ impl Channel {
         }
 
         if sz < sz_in {
-            v.truncate(sz / sz_item);
+            v.truncate((sz as usize) / sz_item);
         }
         Ok(v)
     }
@@ -469,13 +468,13 @@ impl Channel {
         }
 
         let sz_item = mem::size_of::<T>();
-        let sz_in = data.len() * sz_item;
+        let sz_in = (data.len() * sz_item) as ffi::size_t;
 
         let sz = unsafe {
             ffi::iio_channel_write(self.chan, buf.buf, data.as_ptr() as *const c_void, sz_in)
         };
 
-        Ok(sz / sz_item)
+        Ok((sz as usize) / sz_item)
     }
 
     /// Multiplex the samples of a given channel.
@@ -489,13 +488,13 @@ impl Channel {
         }
 
         let sz_item = mem::size_of::<T>();
-        let sz_in = data.len() * sz_item;
+        let sz_in = (data.len() * sz_item) as ffi::size_t;
 
         let sz = unsafe {
             ffi::iio_channel_write(self.chan, buf.buf, data.as_ptr() as *const c_void, sz_in)
         };
 
-        Ok(sz / sz_item)
+        Ok((sz as usize) / sz_item)
     }
 }
 
