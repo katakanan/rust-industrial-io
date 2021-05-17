@@ -235,28 +235,22 @@ impl Context {
     /// This consumes the context to destroy the instance.
     pub fn destroy(self) {}
 
-    pub fn autodetect_context(rtn: bool, name_str: String, scan_str: String) -> Result<Context> {
-        //should it be &str?
+    pub fn autodetect_context(rtn: bool, name_str: &str, scan_str: &str) -> Result<Context> {
+        let _pname = if name_str == "" {
+            std::ptr::null()
+        } else {
+            let tmp = CString::new(name_str).unwrap();
+            tmp.as_ptr() //wrong usage of CString
+        };
+
+        let scan_ctx = if scan_str == "" {
+            unsafe { ffi::iio_create_scan_context(std::ptr::null(), 0) }
+        } else {
+            let scan = CString::new(scan_str).unwrap();
+            unsafe { ffi::iio_create_scan_context(scan.as_ptr(), 0) }
+        };
+
         const BUF_SIZE: usize = 16384;
-        let scan = if scan_str == "" {
-            std::ptr::null_mut()
-        } else {
-            match CString::new(scan_str) {
-                Ok(tmp) => tmp.as_ptr(),
-                Err(_) => std::ptr::null_mut(),
-            }
-        };
-
-        let _name = if name_str == "" {
-            std::ptr::null_mut()
-        } else {
-            match CString::new(name_str) {
-                Ok(tmp) => tmp.as_ptr(),
-                Err(_) => std::ptr::null_mut(),
-            }
-        };
-
-        let scan_ctx: *mut ffi::iio_scan_context = unsafe { ffi::iio_create_scan_context(scan, 0) };
 
         if scan_ctx == std::ptr::null_mut() {
             eprintln!("Unable to create scan context");
@@ -303,6 +297,8 @@ impl Context {
                 .to_string_lossy()
                 .into_owned();
             println!("Using auto-detected IIO context at URI");
+            unsafe { ffi::iio_context_info_list_free(pinfo) };
+            unsafe { ffi::iio_scan_context_destroy(scan_ctx) }
             return Context::create_from_uri(uri.as_str());
         } else {
             if rtn {
@@ -437,6 +433,13 @@ mod tests {
 
     #[test]
     fn detext() {
-        let _ = Context::autodetect_context(false, String::from(""), String::from(""));
+        let _ = Context::autodetect_context(false, "", "");
+    }
+
+    #[test]
+    fn usb_scan() {
+        let scan = "usb";
+        let ctx = Context::autodetect_context(true, "", scan).unwrap();
+        assert_eq!(scan, ctx.name());
     }
 }
